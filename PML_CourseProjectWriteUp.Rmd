@@ -1,0 +1,52 @@
+---
+title: "Practical Machine Learning Course Project Write-Up"
+author: "Chelsea Heaven"
+date: "Saturday, October 17, 2015"
+output: html_document
+---
+
+#Introduction
+
+Hello Git! This is the first test commit of my project for the practical machine learning  class.
+
+
+```{r retreivedata, echo=FALSE}
+#Obtaining data for class project
+urltrain <- c("https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv")
+urltest <- c("https://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv")
+
+download.file(urltrain,destfile="ProjectTrainingSet.csv")
+download.file(urltest,destfile="ProjectTestSet.csv")
+
+tst <- read.csv("ProjectTestSet.csv")
+train  <- read.csv("ProjectTrainingSet.csv")
+
+```
+
+```{r graph, echo=FALSE}
+
+#Look at this graaaaph
+plot(mtcars)
+
+```
+
+
+
+#Model Details
+
+##Building the Model
+
+##Cross Validation of the Model
+
+##Expected Sample Error
+
+##Justification Of Model Choices
+
+#Prediction of 20 Test Cases
+
+#Conclusion
+
+##Does the submission build a machine learning algorithm to predict activity quality from activity monitors?
+
+##Do the authors describe what they expect the out of sample error to be and estimate the error appropriately with cross-validation?
+
