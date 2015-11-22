@@ -1,52 +1,232 @@
 ---
-title: "Practical Machine Learning Course Project Write-Up"
-author: "Chelsea Heaven"
-date: "Saturday, October 17, 2015"
+title: 'PML Course Project: Predicting Good Weightlifting Form'
+author: 'Chelsea Heaven'
+date: "`r format(Sys.time(), '%d %B, %Y')`"
 output: html_document
+bibliography: pmlbib.bib
 ---
 
+```{r loadingdat, echo=FALSE,message=FALSE}
+
+
+#download.file("https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv", "traindat.csv")
+#values are are blank or #DIV/0! are N/A
+traindat <- read.csv("traindat.csv", na.strings = c("NA"," ","#DIV/0!"))
+
+#download.file("https://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv", "testdat.csv")
+testdat <- read.csv("testdat.csv", na.strings = c("NA"," ","#DIV/0!"))
+
+library(knitcitations)
+bib <- read.bibtex("pmlbib.bib")
+
+
+```
+
 #Introduction
+The purpose of this analysis is to see if we can predict good weightlifting form by looking at biomarker data at various points during the weightlifting exercise. The data provided for this project comes from the [Weight Lifting Exercises (WLE) dataset](http://groupware.les.inf.puc-rio.br/work.jsf?p1=11201) `r citep(bib[[1]])`
 
-Hello Git! This is the first test commit of my project for the practical machine learning  class.
+The WLE dataset is comprised of 155 biomarker variables that were recorded as 6 participants forms 10 reps of a bicep curl with 5 different weightlifting forms. The weightlifting methdologies were:
 
+* A: Exercise Preformed Exactly to Specification
+* B: Throwing Elbows in the Front
+* C: Lifting Dumbell Only Halfway
+* D: Lowering The Dumbell Only Halfway
+* E: Throwing Hips to the Front
 
-```{r retreivedata, echo=FALSE}
-#Obtaining data for class project
-urltrain <- c("https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv")
-urltest <- c("https://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv")
+For every participant, the weightlifting form for each biomarker position for each rep is noted in the **classe** variable. Thus, we would like to build a model to see if we can predict the **classe** variable for a test dataset of biomarker data of participants at varying positions. Sensors for the biomarkers were placed on the arm, forearm, belt, and dumbell. 
 
-download.file(urltrain,destfile="ProjectTrainingSet.csv")
-download.file(urltest,destfile="ProjectTestSet.csv")
+#Building The Model
+```{r modeldat, echo=FALSE,message=FALSE, cache = TRUE}
+library(caret)
+library(AppliedPredictiveModeling)
+library(dplyr)
+library(ggplot2)
+#Creating a 3/4 partition of traindat to create the training and testing datasets
+inTrain <- createDataPartition(traindat$classe, p = 0.75,list=FALSE)
+training <- traindat[ inTrain,]
+testing <- traindat[-inTrain,]
 
-tst <- read.csv("ProjectTestSet.csv")
-train  <- read.csv("ProjectTrainingSet.csv")
+#Removing variables that are more than 85% N/A. Determining this from the training set
+numexclude <- colSums(is.na(training)) < nrow(training) * 0.85
+training_fix <- training[, numexclude]
+testing_fix <- testing[, numexclude]
+
+#Removing columns that have to do with ID-ing the data because they have nothing to do with weight training
+training_fix <- training_fix %>%
+                select(-user_name,-contains("timestamp"),-contains("window"),-X)
+
+testing_fix <- testing_fix %>%
+                select(-user_name,-contains("timestamp"),-contains("window"),-X)
+
+#Running GBM model 
+set.seed(36285)
+CModel <- train(classe ~ .,
+                   data=training_fix,
+                   #preProcess = c("pca"),
+                   trControl = trainControl(method = "cv", number = 3, savePred=T),
+                   method="gbm",
+                   verbose=FALSE)
+
+CModel_Summary <- CModel$finalModel
+CModel_Predict <- predict(CModel,newdata=testing_fix)
+confusionMatrix(CModel_Predict,testing_fix$classe)
+
+#List of variables important to the model
+impvar <- varImp(CModel)
+
+#In sample error
+in_sample <- predict(CModel, newdata = training_fix)
+is <- table(in_sample == training_fix$classe)
+
+ise <-(392/nrow(training_fix))*100
+
+#Out of sample error
+oos <- (1-0.96)*100
 
 ```
 
-```{r graph, echo=FALSE}
+##Variable Selection
 
-#Look at this graaaaph
-plot(mtcars)
+The original training dataset was split into a training and test set using the **createDataPartition** function with a 75/25 split between training and test set. The newly created test set was used to analyze the possibility of narrowing down the 160 variables. The following criteria was used to exclude variables.
+
+* A variable was removed if it had more than 85% missing values. A total of 103 variables were excluded by this criteria. Due to the extensive nature of the missing data imputations would have questionable validity. In addition, the excluded columns appear to be summary columns of each measurement. Therefore, leaving them in the model would be redundant.
+
+* If a variable had something to do with an ID, timestamp, or a window, it was excluded from the dataset because variables like this would have no practical predictive value on the form of weightlifting exercises. This excluded 4 variables.
+
+The final variable count was 53.
+
+##Model Selection
+
+For this analysis I decided to use the Stochastic Gradient Boosting model with **method = gbm**. I chose this method because many of the predictor variables are skewed, which would make a model-based prediction method less interpretable because of the transformations involved. In addition, since the purpose of this analysis is to classify a type of weightlifting form by various biomarkers, a classification algorithm makes the most sense. An example of the skewedness of the predictors is here:
+
+```{r dist, echo=FALSE,message=FALSE, cache = TRUE}
+library(ggplot2)
+library(gridExtra)
+
+p1 <- qplot(training_fix$roll_belt, geom="histogram",xlab="roll_belt")
+p2 <- qplot(training_fix$pitch_belt, geom="histogram",xlab="pitch_belt")
+p3 <- qplot(training_fix$total_accel_belt, geom="histogram",xlab ="total_accel_belt")
+p4 <- qplot(training_fix$roll_arm, geom="histogram", xlab = "roll_arm")
+grid.arrange(p1,p2,p3,p4,ncol=2)
 
 ```
 
+I chose the Stochastic Gradient Boosting model specifically because I was not geting good results from the basic Classification tree with **method=rpart**. The out of sample error using the basic Classification tree was 54%. This was not surprising given the typical distribution of the classe variable over various predictors was fairly close together. With the difference classes being so close together, a more sophisticated method was necessary.
 
+Example of difficult classifications here with the roll_belt predictor
 
-#Model Details
+```{r dist1, echo=FALSE,message=FALSE, cache = TRUE}
+library(ggplot2)
+library(gridExtra)
+qplot(roll_belt,colour=classe,data=training,geom="density", main="Example of classe Distribution over the roll_belt variable")
 
-##Building the Model
+#qplot(classe,raw_timestamp_part_1, data = training)
+#qplot(classe,roll_belt, data = training)
+#qplot(classe,pitch_forearm, data = training)
+#qplot(classe,num_window, data = training)
+#qplot(pitch_belt,colour=classe,data=training,geom="density")
+#qplot(num_window,colour=classe,data=training,geom="density")
 
-##Cross Validation of the Model
+```
 
-##Expected Sample Error
+#Validating The Model
 
-##Justification Of Model Choices
+##Cross-Validation
 
-#Prediction of 20 Test Cases
+For cross-validation I used was a k-fold cross validation with 3 folds. The **gbm** package applied these 3 folds over three levels of interaction.depth and number of trees considered in the model. The average accuracy rating across all folds was 75%, with a final accuracy rating of 96% with a 0.94 Kappa value. This validation gives me confidence that the model will preform well with the testing data.
+
+##Sample Error
+The in-sample error for the final model was 2.66% (392 wrong predictions out of a total of 14716 predictions in the training set). Through the cross-validation described above and the results from a confusion matrix on predictions from the training set to the test set, I expect the the out of sample error to be 4% (confusion matrix resulted in a 0.96 accuracy rate). 
+
+Given the complexity of this data, these error rates are acceptable for the purpose of this analysis. While testing out various models these error rates were decreased with the inclusion of the timestamp variables, but since these timestamp variables do not have any relevance to the potential scaling of this data to participants doing weightlifting exercises in a different enviornment.
 
 #Conclusion
+The Stochastic Gradient Boosting model preformed well enough on the testing set for me to have confidence that it will predict the values for the assignment correctly. The **varImp** function identified the following variables as the top 5 most important to the prediction.
 
-##Does the submission build a machine learning algorithm to predict activity quality from activity monitors?
+* roll_belt
+* pitch_forearm
+* yaw_belt
+* magnet_dumbbell_z
+* magnet_dumbbell_y
 
-##Do the authors describe what they expect the out of sample error to be and estimate the error appropriately with cross-validation?
+# References
+Velloso, E.; Bulling, A.; Gellersen, H.; Ugulino, W.; Fuks, H. Qualitative Activity Recognition of Weight Lifting Exercises. Proceedings of 4th International Conference in Cooperation with SIGCHI (Augmented Human '13) . Stuttgart, Germany: ACM SIGCHI, 2013.
+
+```{r answer, echo=FALSE,message=FALSE, cache = TRUE, eval=FALSE}
+#Vector for storing the 20 prediction
+answers <- predict(CModel,newdata=testdat) 
+
+#function to write the files, provided by professor
+pml_write_files = function(x){
+  n = length(x)
+  for(i in 1:n){
+    filename = paste0("problem_id_",i,".txt")
+    write.table(x[i],file=filename,quote=FALSE,row.names=FALSE,col.names=FALSE)
+  }
+}
+
+#executing the function
+pml_write_files(answers)
+
+#Notes from model building
+#looking at what columns fall out when NA variables are removed
+#setdiff(colnames(training), colnames(training_fix))
+#colnames(training_fix)
+
+#Removing values that are highly correlated to each other
+#traincor <- training_fix %>%
+#                select(-classe)
+#Corrs <- cor(traincor)
+#highCorr <- findCorrelation(Corrs, 0.90)
+#training_fix <- training_fix[, -highCorr]
+#testing_fix <- testing_fix[, -highCorr]
+
+##Techniques to enhance model parsimony
+# vif
+# collinearity
+# variance 
+
+##Potential methods to use
+# rpart - Simple classification tree
+# lda - linear discriminant analysis
+# gbm - Stochastic Gradient Boosting (trees with boosting)
+
+#rpart accuracy = 0.49
+#lda accuracy = 0.85
+#gmb accuracy = 0.99
+
+#Running GBM model without the X indicator and timestamp variables
+#training_NT <- training_fix %>%
+#           select(-contains("timestamp"))
+
+#testing_NT <- testing_fix %>%
+#           select(-contains("timestamp"))
+
+#set.seed(36285)
+#CModel_NT <- train(classe ~ . -X,
+#                   data=training_NT,
+#                   trControl = trainControl(method = "cv", number = 3),
+#                   method="gbm",
+#                   verbose=FALSE)
+
+#CModel_NT_Summary <- CModel_NT$finalModel
+#CModel_NT_Predict <- predict(CModel_NT,newdata=testing_NT)
+#confusionMatrix(CModel_NT_Predict,testing_NT$classe)
+
+#rpart accuracy = 0.49
+#lda accuracy = 0.85
+#gmb accuracy = 0.99
+#Looking at most important variables for the model
+
+
+#Predict vs Truth Graph
+#qplot(classe,CModel_Predict,colour=classe,data=testing_fix, jitter=TRUE)
+
+
+#featurePlot(x=training_fix$roll_belt,
+#            y = training_fix$classe),
+           # plot="pairs")
+#tableplot(training_fix)
+
+```
 
